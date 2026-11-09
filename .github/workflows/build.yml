@@ -87,7 +87,7 @@ jobs:
           cp README.md package/
           macdeployqt package/CameraGuard.app -always-overwrite -codesign=-
           codesign --verify --deep --strict package/CameraGuard.app
-          lipo -verify_arch "$TARGET_ARCH" package/CameraGuard.app/Contents/MacOS/CameraGuard
+          lipo package/CameraGuard.app/Contents/MacOS/CameraGuard -verify_arch "$TARGET_ARCH"
           plutil -extract NSCameraUsageDescription raw package/CameraGuard.app/Contents/Info.plist
           env -u QT_PLUGIN_PATH -u DYLD_LIBRARY_PATH package/CameraGuard.app/Contents/MacOS/CameraGuard --smoke-test
           ditto -c -k package "dist/$ARTIFACT.zip"

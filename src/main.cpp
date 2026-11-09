@@ -482,7 +482,7 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; ++i) {
         if (QByteArray(argv[i]) == "--smoke-test") {
             QCoreApplication smoke(argc, argv);
-            const QMediaFormat format(QMediaFormat::MPEG4);
+            QMediaFormat format(QMediaFormat::MPEG4);
             const auto codecs = format.supportedVideoCodecs(QMediaFormat::Encode);
             return codecs.contains(QMediaFormat::VideoCodec::H264)
                 || codecs.contains(QMediaFormat::VideoCodec::MPEG4) ? 0 : 1;

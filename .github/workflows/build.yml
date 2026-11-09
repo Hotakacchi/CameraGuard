@@ -67,6 +67,33 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Packaged app failed its MP4 encoder check" }
           Compress-Archive -Path package/* -DestinationPath dist/${{ matrix.artifact }}.zip
 
+      - name: Build and test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(CameraGuard VERSION ([0-9.]+)').Groups[1].Value
+          if (!$version) { throw 'CameraGuard version not found' }
+          $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $iscc = if ($compiler) { $compiler.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup compiler is missing' }
+          & $iscc "/DAppVersion=$version" packaging/CameraGuard.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+          Remove-Item Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notlike "$env:QT_ROOT_DIR*" }) -join ';'
+          $target = Join-Path $env:RUNNER_TEMP 'CameraGuard Installer Test'
+          $setup = Resolve-Path dist/CameraGuard-Windows-x64-Setup.exe
+          $setupArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /DIR="{0}"' -f $target
+          $install = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $app = Join-Path $target 'CameraGuard.exe'
+          $process = Start-Process -FilePath $app -ArgumentList '--smoke-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installed app failed its MP4 encoder check" }
+          $uninstaller = Get-ChildItem -LiteralPath $target -Filter 'unins*.exe' | Select-Object -First 1
+          if (!$uninstaller) { throw 'Uninstaller is missing' }
+          $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0 -or (Test-Path $app)) { throw 'Uninstall test failed' }
+
       - name: Build and test on macOS
         if: runner.os == 'macOS'
         env:
@@ -91,6 +118,31 @@ jobs:
           plutil -extract NSCameraUsageDescription raw package/CameraGuard.app/Contents/Info.plist
           env -u QT_PLUGIN_PATH -u DYLD_LIBRARY_PATH package/CameraGuard.app/Contents/MacOS/CameraGuard --smoke-test
           ditto -c -k package "dist/$ARTIFACT.zip"
+
+      - name: Build and test macOS disk image
+        if: runner.os == 'macOS'
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          ln -s /Applications package/Applications
+          image="dist/$ARTIFACT.dmg"
+          hdiutil create -srcfolder package -volname CameraGuard -format UDZO -o "$image"
+          hdiutil verify "$image"
+          mount="$(mktemp -d)"
+          hdiutil attach "$image" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          test "$(readlink "$mount/Applications")" = /Applications
+          codesign --verify --deep --strict "$mount/CameraGuard.app"
+          env -u QT_PLUGIN_PATH -u DYLD_LIBRARY_PATH "$mount/CameraGuard.app/Contents/MacOS/CameraGuard" --smoke-test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installer
+          path: |
+            dist/*-Setup.exe
+            dist/*.dmg
+          compression-level: 0
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:

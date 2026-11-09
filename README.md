@@ -6,15 +6,18 @@ Windows 11 と macOS 13 以降向けのPCカメラ録画アプリ。アプリ本
 
 1. このディレクトリの内容を、隠しディレクトリの `.github` も含めて GitHub リポジトリのルートへ置き、プッシュします。
 2. **Actions → Build CameraGuard** を開きます。プッシュで自動実行され、既定ブランチにワークフローがあれば **Run workflow** からも実行できます。
-3. 実行が成功したら **Artifacts** から環境に合うZIPをダウンロードします。ArtifactsのZIPを展開した中に、配布用のZIPがあります。
+3. 実行が成功したら **Artifacts** から、自分の環境に合う末尾が `-installer` の項目をダウンロードします。
 
-| 環境 | 成果物 | 起動するファイル |
+| 環境 | Artifactsの名前 | ZIPを展開して開くファイル |
 | --- | --- | --- |
-| Windows 11 x64 | CameraGuard-Windows-x64 | CameraGuard.exe |
-| Mac Apple Silicon | CameraGuard-macOS-arm64 | CameraGuard.app |
-| Intel Mac | CameraGuard-macOS-x86_64 | CameraGuard.app |
+| Windows 11 x64 | CameraGuard-Windows-x64-installer | CameraGuard-Windows-x64-Setup.exe |
+| Mac Apple Silicon | CameraGuard-macOS-arm64-installer | CameraGuard-macOS-arm64.dmg |
+| Intel Mac | CameraGuard-macOS-x86_64-installer | CameraGuard-macOS-x86_64.dmg |
 
-Windows版はZIPを展開し、同梱のDLLとプラグインを同じ位置に置いて起動します。Mac版の試作ビルドはアドホック署名付きで、Developer IDによる署名やAppleの公証は済んでいません。macOSの設定や配布方法によっては起動が制限されます。配布前に署名・公証と同梱ライブラリのライセンス条件を確認してください。
+- **Windows**ではセットアップEXEを実行し、スタートメニューから CameraGuard を起動します。既定のインストール先は現在のユーザーの `%LOCALAPPDATA%\Programs\CameraGuard` です。アンインストールは Windows の「インストールされているアプリ」から行えます。録画と設定はインストール先と別に保存されます。
+- **Mac**ではDMGを開き、`CameraGuard.app` を `Applications` にドラッグします。Appleの公証は未実施で、アプリはアドホック署名付きです。
+- WindowsのセットアップEXEの発行元署名は未実施です。配布前にコード署名と同梱ライブラリのライセンス条件を確認してください。
+- 末尾が `-installer` でない項目からは従来のポータブルZIPを取得できます。
 
 ## 監視
 

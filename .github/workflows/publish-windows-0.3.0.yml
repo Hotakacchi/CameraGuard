@@ -1,0 +1,42 @@
+name: Publish Windows installer v0.3.0
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-windows-0.3.0.yml]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-windows-v0.3.0
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish the tested Windows installer
+        shell: bash
+        run: |
+          tag=v0.3.0
+          asset=CameraGuard-Windows-x64-Setup.exe
+          if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fx "$asset"; then
+            exit 0
+          fi
+          gh run download 42653589279 --name CameraGuard-Windows-x64-installer --dir installer
+          test -s "installer/$asset"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "installer/$asset"
+          else
+            gh release create "$tag" "installer/$asset" \
+              --target ea4ff8cc8285577630a6bdabbcb4010c6cd21ce3 \
+              --title 'CameraGuard v0.3.0' \
+              --notes 'Windows 11 x64向けのセットアップEXEです。発行元署名は未実施です。'
+          fi

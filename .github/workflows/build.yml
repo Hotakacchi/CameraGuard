@@ -1,0 +1,99 @@
+name: Build CameraGuard
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2025
+            qt_arch: win64_msvc2022_64
+            artifact: CameraGuard-Windows-x64
+          - name: macOS Apple Silicon
+            runner: macos-15
+            qt_arch: clang_64
+            mac_arch: arm64
+            artifact: CameraGuard-macOS-arm64
+          - name: macOS Intel
+            runner: macos-15-intel
+            qt_arch: clang_64
+            mac_arch: x86_64
+            artifact: CameraGuard-macOS-x86_64
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: ${{ matrix.qt_arch }}
+          modules: qtmultimedia
+          cache: true
+
+      - name: Build and test on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G 'Visual Studio 17 2022' -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --parallel
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Package and check Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package, dist | Out-Null
+          Copy-Item build/Release/CameraGuard.exe, README.md package/
+          windeployqt --release --no-translations package/CameraGuard.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notlike "$env:QT_ROOT_DIR*" }) -join ';'
+          $process = Start-Process -FilePath (Resolve-Path package/CameraGuard.exe) -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Packaged app failed its MP4 encoder check" }
+          Compress-Archive -Path package/* -DestinationPath dist/${{ matrix.artifact }}.zip
+
+      - name: Build and test on macOS
+        if: runner.os == 'macOS'
+        env:
+          TARGET_ARCH: ${{ matrix.mac_arch }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$TARGET_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Package and check macOS app
+        if: runner.os == 'macOS'
+        env:
+          TARGET_ARCH: ${{ matrix.mac_arch }}
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          mkdir -p package dist
+          ditto build/CameraGuard.app package/CameraGuard.app
+          cp README.md package/
+          macdeployqt package/CameraGuard.app -always-overwrite -codesign=-
+          codesign --verify --deep --strict package/CameraGuard.app
+          lipo -verify_arch "$TARGET_ARCH" package/CameraGuard.app/Contents/MacOS/CameraGuard
+          plutil -extract NSCameraUsageDescription raw package/CameraGuard.app/Contents/Info.plist
+          env -u QT_PLUGIN_PATH -u DYLD_LIBRARY_PATH package/CameraGuard.app/Contents/MacOS/CameraGuard --smoke-test
+          ditto -c -k package "dist/$ARTIFACT.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*.zip
+          if-no-files-found: error

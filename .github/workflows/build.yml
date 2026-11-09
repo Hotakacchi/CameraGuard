@@ -83,10 +83,47 @@ jobs:
           $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notlike "$env:QT_ROOT_DIR*" }) -join ';'
           $target = Join-Path $env:RUNNER_TEMP 'CameraGuard Installer Test'
           $setup = Resolve-Path dist/CameraGuard-Windows-x64-Setup.exe
-          $setupArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /DIR="{0}"' -f $target
-          $install = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $setupArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS'
+          $versionInfo = (Get-Item -LiteralPath $setup.Path).VersionInfo
+          $fileVersion = "$($versionInfo.FileMajorPart).$($versionInfo.FileMinorPart).$($versionInfo.FileBuildPart)"
+          if ($fileVersion -ne $version) { throw "Incorrect setup version: $fileVersion" }
+
+          $oldSetup = Join-Path $env:RUNNER_TEMP 'CameraGuard-0.3.0-Setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Hotakacchi/CameraGuard/releases/download/v0.3.0/CameraGuard-Windows-x64-Setup.exe' -OutFile $oldSetup
+          $oldHash = (Get-FileHash -LiteralPath $oldSetup -Algorithm SHA256).Hash
+          if ($oldHash -ne '842e8439bf87fd6eddcc019ce30bb981990287cfe901e82db60ab631cc562938') { throw 'Previous installer checksum mismatch' }
+          $oldArgs = "$setupArgs /DIR=`"$target`""
+          $oldInstall = Start-Process -FilePath $oldSetup -ArgumentList $oldArgs -Wait -PassThru
+          if ($oldInstall.ExitCode -ne 0) { throw "Previous installer failed: $($oldInstall.ExitCode)" }
+
+          $recordings = Join-Path $env:LOCALAPPDATA 'Hotakacchi/CameraGuard/recordings'
+          New-Item -ItemType Directory -Path $recordings -Force | Out-Null
+          $clip = Join-Path $recordings 'guard_20260101_010101_123456789abc.mp4'
+          Set-Content -LiteralPath $clip -Value 'Recording fixture'
+          $clipHash = (Get-FileHash -LiteralPath $clip).Hash
+          $settings = 'HKCU:\Software\Hotakacchi\CameraGuard'
+          New-Item -Path $settings -Force | Out-Null
+          New-ItemProperty -Path $settings -Name 'days' -Value 30 -PropertyType DWord -Force | Out-Null
+
           $app = Join-Path $target 'CameraGuard.exe'
+          $oldAppHash = (Get-FileHash -LiteralPath $app).Hash
+          $locked = [IO.File]::Open($app, 'Open', 'Read', 'None')
+          try {
+            $blocked = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
+            if ($blocked.ExitCode -ne 7) { throw "Expected a blocked update, got exit code $($blocked.ExitCode)" }
+          } finally {
+            $locked.Dispose()
+          }
+          if ((Get-FileHash -LiteralPath $app).Hash -ne $oldAppHash) { throw 'Blocked update changed the installed app' }
+
+          $install = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Update failed: $($install.ExitCode)" }
+          if ((Get-FileHash -LiteralPath $app).Hash -ne (Get-FileHash package/CameraGuard.exe).Hash) {
+            throw 'Update did not install the new executable in the previous directory'
+          }
+          if ((Get-FileHash -LiteralPath $clip).Hash -ne $clipHash -or (Get-ItemPropertyValue -Path $settings -Name 'days') -ne 30) {
+            throw 'Update changed the existing recording or settings'
+          }
           $process = Start-Process -FilePath $app -ArgumentList '--smoke-test' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Installed app failed its MP4 encoder check" }
           $uninstaller = Get-ChildItem -LiteralPath $target -Filter 'unins*.exe' | Select-Object -First 1
